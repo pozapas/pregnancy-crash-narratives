@@ -90,9 +90,11 @@ not how much text is read.
 
 ## Licence
 
-MIT (see `LICENSE`) — use it, change it, build on it, no permission needed. The licence covers
-the code, the schemas and the documentation. It cannot cover the CRIS data, which is not ours to
-license and is not here.
+MIT (see `LICENSE`) — use it, change it, build on it, no permission needed.
+
+The licence covers the code, the schemas and the documentation in this repository. It does not
+and cannot cover the Texas CRIS crash data, which is not distributed here and is not the
+authors' to license.
 
 ## Getting data
 
