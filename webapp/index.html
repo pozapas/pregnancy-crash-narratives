@@ -267,16 +267,16 @@ var role = null;
 // control and are not treated as one: this page holds no data, so there is nothing here to
 // protect. The reviewer's CSV is opened from their own disk and never leaves the browser.
 //
-//   full : all 407 rows.
-//   dbl  : only the 27 rows marked double_code=1, which are the inter-rater (kappa) sample.
+//   full  : every row of the file that is opened.
+//   dbl   : only rows marked double_code=1, the inter-rater (kappa) sample.
+//   topup : the rows nobody has read yet. The first two coders worked from a 230-row frame
+//           that predates the full-coverage Stage-C re-harvest, so 177 rows -- all Stage-C --
+//           have never been seen. Those rows are what pins down the adjudicated share `c`,
+//           which currently rests on 2 confirmed positives out of 42.
 //
-// Cohen's kappa is a TWO-rater statistic, which is why there are two coder roles and not more.
-// p15_merge_labels.py keeps both readings of a double-coded row rather than letting one
-// reviewer's label overwrite the other's.
-//   topup: the rows nobody has read yet. Both coders worked from the 230-row frame that
-//          predates the full-coverage Stage-C re-harvest, so 177 rows -- all Stage-C -- have
-//          never been seen. Those rows are what pins down the adjudicated share `c`, currently
-//          resting on 2 confirmed positives out of 42.
+// Cohen's kappa is a TWO-rater statistic, which is why the double-coded assignment exists for
+// exactly two coders. p15_merge_labels.py keeps both readings of a double-coded row rather than
+// letting one reviewer's label overwrite the other's.
 var CODES = {
   "tx-preg-01": { name: "Coder 1", assign: "full" },
   "tx-preg-02": { name: "Coder 2", assign: "full" },
