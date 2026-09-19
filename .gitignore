@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# Data never enters this repository.
+#
+# The crash narratives are government records supplied under a data agreement that does not
+# permit redistribution, and roughly 37% of them still contain a name, address or other
+# identifier after two redaction passes. Nothing derived from them at the record level belongs
+# here either. These rules are deliberately broad: it is cheaper to un-ignore one file than to
+# rewrite history after a narrative is pushed.
+# ---------------------------------------------------------------------------
+*.csv
+*.json
+*.jsonl
+*.parquet
+*.fst
+*.npy
+*.xlsx
+*.dta
+*.sav
+data/
+!schemas/*.json
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+credentials*
+secrets*
+
+# Manuscript (kept out of the code release)
+manuscript/
+*.tex
+*.bib
+*.pdf
+*.bbl
+*.aux
+*.log
+*.out
+*.synctex.gz
+
+# Generated outputs
+outputs/
+figures/
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.eps
+
+# Python / R / editor noise
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.Rhistory
+.RData
+.Rproj.user/
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

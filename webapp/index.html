@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Narrative Adjudication</title>
+<!--
+  Pregnancy narrative adjudication tool.
+
+  THIS PAGE CONTAINS NO DATA AND MAKES NO NETWORK REQUESTS.
+
+  The narratives being reviewed are government records that still contain residual personal
+  identifiers after two redaction passes, so they are never deployed, never uploaded and never
+  transmitted. The reviewer opens their own copy of validation_review.csv from their own disk;
+  it is parsed in the browser with FileReader, held in memory only, and written back out as a
+  file the reviewer saves locally. No fetch, no XHR, no form POST, no analytics, no CDN fonts,
+  no localStorage of narrative text. Closing the tab destroys the working copy, which is why the
+  export button is the save mechanism and the UI says so.
+-->
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --panel:#f9fafb;
+    --accent:#0072B2; --yes:#009E73; --no:#D55E00; --warn:#E69F00; --skip:#6b7280;
+    --focus:#CC79A7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --line:#2b2f36; --panel:#1b1e24;
+      --accent:#56B4E9; --yes:#00b380; --no:#ff7a33; --warn:#f0b429; --skip:#9aa0a6;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --line:#2b2f36; --panel:#1b1e24;
+    --accent:#56B4E9; --yes:#00b380; --no:#ff7a33; --warn:#f0b429; --skip:#9aa0a6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:900px; margin:0 auto; padding:16px}
+  h1{font-size:19px; margin:0 0 4px}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 18px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px}
+  label{display:block; font-size:13px; font-weight:600; margin-bottom:5px}
+  input[type=text]{
+    width:100%; padding:9px 10px; font-size:15px; border:1px solid var(--line);
+    border-radius:7px; background:var(--bg); color:var(--fg);
+  }
+  input[type=file]{font-size:14px; color:var(--fg)}
+  button{
+    font:inherit; font-weight:600; padding:9px 14px; border-radius:7px; cursor:pointer;
+    border:1px solid var(--line); background:var(--bg); color:var(--fg);
+  }
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.45; cursor:not-allowed}
+  .primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .row{display:flex; gap:9px; flex-wrap:wrap; align-items:center}
+  .grow{flex:1 1 auto}
+  .banner{
+    border-left:4px solid var(--warn); background:var(--panel); padding:11px 13px;
+    border-radius:0 8px 8px 0; font-size:13px; margin-bottom:14px;
+  }
+  .narr{
+    background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:15px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:14px;
+    line-height:1.65; white-space:pre-wrap; word-break:break-word; margin:11px 0;
+    max-height:44vh; overflow:auto;
+  }
+  .meta{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted)}
+  .meta b{color:var(--fg); font-weight:600}
+  .pill{
+    display:inline-block; padding:2px 8px; border-radius:11px; font-size:11px;
+    font-weight:700; border:1px solid var(--line);
+  }
+  .pill.dbl{border-color:var(--focus); color:var(--focus)}
+  .bar{height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:10px 0 3px}
+  .bar>i{display:block; height:100%; background:var(--accent); width:0%}
+  .choices{display:flex; gap:9px; flex-wrap:wrap; margin:13px 0}
+  .choices button{min-width:112px}
+  .y{border-color:var(--yes); color:var(--yes)} .y.on{background:var(--yes); color:#fff}
+  .n{border-color:var(--no); color:var(--no)} .n.on{background:var(--no); color:#fff}
+  .u{border-color:var(--skip); color:var(--skip)} .u.on{background:var(--skip); color:#fff}
+  .sub-q{margin:11px 0}
+  .sub-q .choices button{min-width:92px; font-weight:500; font-size:13px; padding:6px 11px}
+  .sub-q .choices button.on{background:var(--accent); border-color:var(--accent); color:#fff}
+  .hint{font-size:12px; color:var(--muted); margin-top:3px}
+  .kbd{
+    font-family:ui-monospace,monospace; font-size:11px; border:1px solid var(--line);
+    border-bottom-width:2px; border-radius:4px; padding:1px 5px; color:var(--muted);
+  }
+  .hide{display:none}
+  .jev{border:1px dashed var(--line); border-radius:8px; padding:10px; margin:11px 0; font-size:13px}
+  .jev .muted{color:var(--muted)}
+  table{width:100%; border-collapse:collapse; font-size:13px}
+  td,th{padding:5px 7px; border-bottom:1px solid var(--line); text-align:left}
+  .right{text-align:right}
+  @media (max-width:560px){
+    .choices button{min-width:0; flex:1 1 30%}
+    .wrap{padding:12px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Narrative adjudication</h1>
+<p class="sub">Pregnancy in Texas crash narratives &mdash; validation labelling</p>
+
+<div class="banner" id="privacy">
+  <b>Your data never leaves this computer.</b> This page holds no narratives and makes no network
+  requests. Your CSV is read in the browser and stays in memory. Nothing is uploaded, and nothing
+  is saved automatically &mdash; <b>use Export to save your work</b>, and export before closing
+  the tab or you will lose it.
+</div>
+
+<!-- ============ setup ============ -->
+<section id="setup">
+  <div class="card">
+    <label for="code">Access code</label>
+    <input type="text" id="code" placeholder="code from the study lead" autocomplete="off"
+           autocapitalize="off" spellcheck="false">
+    <p class="hint" id="codemsg">This identifies which coder you are and which rows you are
+      assigned. It is not a password: it protects nothing, because your CSV never reaches this
+      page in the first place.</p>
+  </div>
+  <div class="card hide" id="whocard">
+    <label for="who">Labeler name <span class="hint">(recorded in your export)</span></label>
+    <input type="text" id="who" placeholder="e.g. A. Rafe" autocomplete="off">
+    <p class="hint" id="assignmsg"></p>
+  </div>
+  <div class="card">
+    <label for="file">Open <code>validation_review.csv</code></label>
+    <input type="file" id="file" accept=".csv,text/csv">
+    <p class="hint">Sent to you separately. It is not downloadable from this page.</p>
+    <p class="hint" id="loadmsg"></p>
+  </div>
+  <div class="card">
+    <div class="row">
+      <input type="checkbox" id="blind" checked style="width:auto">
+      <label for="blind" style="margin:0">Blind mode &mdash; hide the model's answers while I read</label>
+    </div>
+    <p class="hint">Recommended. Seeing the model's answer first biases adjudication, and these
+      labels are what its accuracy is measured against. You can reveal per narrative with
+      <span class="kbd">M</span>.</p>
+  </div>
+  <button class="primary" id="start" disabled>Start</button>
+</section>
+
+<!-- ============ review ============ -->
+<section id="review" class="hide">
+  <div class="card">
+    <div class="row">
+      <div class="grow">
+        <div class="meta">
+          <span>Row <b id="pos">1</b> of <b id="tot">0</b></span>
+          <span>Crash <b id="cid">&mdash;</b></span>
+          <span>Year <b id="yr">&mdash;</b></span>
+          <span id="stg"></span>
+          <span id="dbl"></span>
+        </div>
+      </div>
+      <span class="hint"><b id="ndone">0</b> labelled</span>
+    </div>
+    <div class="bar"><i id="fill"></i></div>
+
+    <div class="narr" id="narr"></div>
+
+    <div class="jev hide" id="jevbox">
+      <div><span class="muted">model p(pregnancy mentioned):</span> <b id="jp"></b></div>
+      <div><span class="muted">role / outcome / stage:</span> <b id="jros"></b></div>
+    </div>
+    <p class="hint" id="revealhint">Model answers hidden &mdash; press <span class="kbd">M</span> to reveal for this narrative.</p>
+
+    <p style="margin:15px 0 0"><b>Does this narrative state that a person involved in the crash was pregnant?</b></p>
+    <div class="choices" id="q1">
+      <button class="y" data-v="1">Yes <span class="kbd">Y</span></button>
+      <button class="n" data-v="0">No <span class="kbd">N</span></button>
+      <button class="u" data-v="">Unclear <span class="kbd">U</span></button>
+    </div>
+
+    <div id="subs" class="hide">
+      <div class="sub-q">
+        <label>Role of the pregnant person</label>
+        <div class="choices" data-q="role">
+          <button data-v="driver">driver</button>
+          <button data-v="passenger">passenger</button>
+          <button data-v="pedestrian_or_other">ped/other</button>
+          <button data-v="unclear">unclear</button>
+        </div>
+      </div>
+      <div class="sub-q">
+        <label>Documented outcome</label>
+        <div class="choices" data-q="outcome">
+          <button data-v="no_complaint">no complaint</button>
+          <button data-v="pain_or_evaluation">pain/eval</button>
+          <button data-v="transported">transported</button>
+          <button data-v="fetal_harm">fetal harm</button>
+          <button data-v="unclear">unclear</button>
+        </div>
+      </div>
+      <div class="sub-q">
+        <label>Stated stage</label>
+        <div class="choices" data-q="stage">
+          <button data-v="early">early</button>
+          <button data-v="mid">mid</button>
+          <button data-v="late">late</button>
+          <button data-v="stage_not_stated">not stated</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-q">
+      <label for="notes">Notes <span class="hint">(optional)</span></label>
+      <input type="text" id="notes" placeholder="anything that made this hard to call" autocomplete="off">
+    </div>
+
+    <div class="row" style="margin-top:13px">
+      <button id="prev">&larr; Back</button>
+      <button id="next">Skip &rarr;</button>
+      <span class="grow"></span>
+      <button id="jump">Next unlabelled</button>
+    </div>
+    <p class="hint">
+      <span class="kbd">Y</span>/<span class="kbd">N</span>/<span class="kbd">U</span> answer and advance &middot;
+      <span class="kbd">&larr;</span><span class="kbd">&rarr;</span> move &middot;
+      <span class="kbd">M</span> reveal model &middot;
+      <span class="kbd">E</span> export
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="primary" id="expcsv">Export labels CSV</button>
+      <button id="expjson">Export JSON</button>
+      <button id="expfull">Export full review CSV</button>
+      <span class="grow"></span>
+      <span class="hint" id="expmsg"></span>
+    </div>
+    <p class="hint" style="margin-top:9px">
+      <b>Labels CSV</b> is the one the pipeline reads
+      (<code>Crash_ID, label_pregnant, source=human, labeler</code>) &rarr; save as
+      <code>validation_labels.csv</code>. <b>Full review CSV</b> returns every original column with
+      your <code>HUMAN_*</code> answers filled in, for the record.
+    </p>
+  </div>
+
+  <div class="card">
+    <table>
+      <tr><th>Progress</th><th class="right">n</th></tr>
+      <tr><td>Labelled yes</td><td class="right" id="s1">0</td></tr>
+      <tr><td>Labelled no</td><td class="right" id="s0">0</td></tr>
+      <tr><td>Unclear</td><td class="right" id="su">0</td></tr>
+      <tr><td>Remaining</td><td class="right" id="sr">0</td></tr>
+    </table>
+  </div>
+</section>
+
+</div>
+<script>
+"use strict";
+// ---------------------------------------------------------------- state (memory only)
+var rows = [], allRows = [], labels = {}, i = 0, who = "", blind = true, dirty = false;
+var role = null;
+
+// Access codes select a CODER ROLE and a row assignment. They are deliberately not a security
+// control and are not treated as one: this page holds no data, so there is nothing here to
+// protect. The reviewer's CSV is opened from their own disk and never leaves the browser.
+//
+//   full : all 407 rows.
+//   dbl  : only the 27 rows marked double_code=1, which are the inter-rater (kappa) sample.
+//
+// Cohen's kappa is a TWO-rater statistic, which is why there are two coder roles and not more.
+// p15_merge_labels.py keeps both readings of a double-coded row rather than letting one
+// reviewer's label overwrite the other's.
+//   topup: the rows nobody has read yet. Both coders worked from the 230-row frame that
+//          predates the full-coverage Stage-C re-harvest, so 177 rows -- all Stage-C -- have
+//          never been seen. Those rows are what pins down the adjudicated share `c`, currently
+//          resting on 2 confirmed positives out of 42.
+var CODES = {
+  "tx-preg-01": { name: "Coder 1", assign: "full" },
+  "tx-preg-02": { name: "Coder 2", assign: "full" },
+  "tx-preg-02k": { name: "Coder 2", assign: "dbl" },
+  "tx-preg-03": { name: "Coder 3", assign: "full" },
+  "tx-preg-topup": { name: "Top-up coder", assign: "topup" }
+};
+// "topup" reads every row of whatever file is opened -- the caller is given
+// validation_review_TOPUP.csv, which already contains only the 177 unlabelled rows. Filtering
+// in the page instead would mean shipping 230 Crash_IDs inside a public document for no gain.
+
+// ---------------------------------------------------------------- CSV (RFC4180 enough)
+function parseCSV(text){
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  var out = [], row = [], cur = "", q = false, c, n;
+  for (var k = 0; k < text.length; k++){
+    c = text[k];
+    if (q){
+      if (c === '"'){
+        n = text[k+1];
+        if (n === '"'){ cur += '"'; k++; } else q = false;
+      } else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ','){ row.push(cur); cur = ""; }
+    else if (c === '\n'){ row.push(cur); out.push(row); row = []; cur = ""; }
+    else if (c === '\r'){ /* skip */ }
+    else cur += c;
+  }
+  if (cur.length || row.length){ row.push(cur); out.push(row); }
+  return out;
+}
+function toObjects(grid){
+  if (!grid.length) return [];
+  var head = grid[0], res = [], j, k, o;
+  for (j = 1; j < grid.length; j++){
+    if (grid[j].length === 1 && grid[j][0] === "") continue;
+    o = {};
+    for (k = 0; k < head.length; k++) o[head[k]] = grid[j][k] === undefined ? "" : grid[j][k];
+    res.push(o);
+  }
+  return res;
+}
+function esc(v){
+  v = (v === undefined || v === null) ? "" : String(v);
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+function toCSV(head, recs){
+  var lines = [head.join(",")], j, k, r, cells;
+  for (j = 0; j < recs.length; j++){
+    r = recs[j]; cells = [];
+    for (k = 0; k < head.length; k++) cells.push(esc(r[head[k]]));
+    lines.push(cells.join(","));
+  }
+  return lines.join("\r\n") + "\r\n";
+}
+// Blob + object URL only: this is a local file write, not an upload.
+function save(name, text, mime){
+  var b = new Blob([text], {type: mime + ";charset=utf-8"});
+  var u = URL.createObjectURL(b), a = document.createElement("a");
+  a.href = u; a.download = name; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(u); }, 1500);
+}
+var $ = function(id){ return document.getElementById(id); };
+
+// ---------------------------------------------------------------- setup
+function applyAssignment(){
+  if (!allRows.length) { rows = []; return; }
+  rows = (role && role.assign === "dbl")
+    ? allRows.filter(function(r){ return String(r.double_code).trim() === "1"; })
+    : allRows.slice();
+}
+function describe(){
+  if (!role) return;
+  var n = allRows.length ? rows.length : 0;
+  var what = role.assign === "dbl" ? "the double-coded subset"
+           : role.assign === "topup" ? "the top-up set (open validation_review_TOPUP.csv)"
+           : "the full set";
+  $("assignmsg").textContent = "You are " + role.name + ", assigned " + what
+    + (allRows.length
+        ? " — " + n + (role.assign === "dbl" ? " of " + allRows.length : "") + " rows."
+        : ".");
+}
+function ready(){
+  $("start").disabled = !(role && rows.length && $("who").value.trim());
+}
+$("code").addEventListener("input", function(){
+  var v = $("code").value.trim().toLowerCase();
+  role = CODES[v] || null;
+  $("whocard").classList.toggle("hide", !role);
+  if (role){
+    $("codemsg").textContent = "Recognised: " + role.name + ".";
+    if (!$("who").value.trim()) $("who").value = role.name;
+    applyAssignment(); describe();
+  } else {
+    $("codemsg").textContent = v
+      ? "Not a recognised code."
+      : "This identifies which coder you are and which rows you are assigned. It is not a "
+        + "password: it protects nothing, because your CSV never reaches this page.";
+  }
+  ready();
+});
+$("who").addEventListener("input", ready);
+$("file").addEventListener("change", function(e){
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  var r = new FileReader();
+  r.onload = function(){
+    try{
+      allRows = toObjects(parseCSV(String(r.result)));
+    }catch(err){
+      $("loadmsg").textContent = "Could not read that file: " + err.message;
+      return;
+    }
+    if (!allRows.length || !("Crash_ID" in allRows[0]) || !("narrative_redacted" in allRows[0])){
+      allRows = []; rows = [];
+      $("loadmsg").textContent =
+        "That does not look like validation_review.csv (needs Crash_ID and narrative_redacted).";
+    } else {
+      var d = 0;
+      for (var j = 0; j < allRows.length; j++)
+        if (String(allRows[j].double_code).trim() === "1") d++;
+      applyAssignment();
+      $("loadmsg").textContent = allRows.length + " rows in the file, " + d
+        + " marked for double coding.";
+      describe();
+    }
+    ready();
+  };
+  r.readAsText(f);
+});
+$("blind").addEventListener("change", function(e){ blind = e.target.checked; });
+$("start").addEventListener("click", function(){
+  who = $("who").value.trim();
+  $("setup").classList.add("hide");
+  $("review").classList.remove("hide");
+  $("tot").textContent = rows.length;
+  i = 0; render();
+});
+
+// ---------------------------------------------------------------- render
+function render(){
+  var r = rows[i];
+  if (!r) return;
+  $("pos").textContent = i + 1;
+  $("cid").textContent = r.Crash_ID;
+  $("yr").textContent = r.Year || "—";
+  $("stg").innerHTML = '<span class="pill">' +
+    (r.source_stage === "A_hit" ? "Stage A" : "Stage C") + "</span>";
+  $("dbl").innerHTML = String(r.double_code) === "1"
+    ? '<span class="pill dbl">double-coded</span>' : "";
+  $("narr").textContent = r.narrative_redacted || "(no narrative text in this row)";
+  $("narr").scrollTop = 0;
+
+  var jb = $("jevbox");
+  if (blind){ jb.classList.add("hide"); $("revealhint").classList.remove("hide"); }
+  else { showJev(); }
+
+  var L = labels[r.Crash_ID] || {};
+  var b, k, btns = $("q1").children;
+  for (k = 0; k < btns.length; k++){
+    b = btns[k];
+    b.classList.toggle("on", L.pregnant !== undefined && String(L.pregnant) === b.dataset.v);
+  }
+  $("subs").classList.toggle("hide", String(L.pregnant) !== "1");
+  ["role","outcome","stage"].forEach(function(q){
+    var grp = document.querySelector('[data-q="' + q + '"]');
+    for (var m = 0; m < grp.children.length; m++){
+      grp.children[m].classList.toggle("on", L[q] === grp.children[m].dataset.v);
+    }
+  });
+  $("notes").value = L.notes || "";
+  stats();
+}
+function showJev(){
+  var r = rows[i];
+  $("jp").textContent = r.jev_preg_mentioned_p;
+  $("jros").textContent = [r.jev_preg_role, r.jev_preg_outcome, r.jev_preg_stage]
+    .filter(Boolean).join(" / ") || "—";
+  $("jevbox").classList.remove("hide");
+  $("revealhint").classList.add("hide");
+}
+function stats(){
+  var y = 0, n = 0, u = 0, k, L;
+  for (k in labels){
+    L = labels[k];
+    if (L.pregnant === 1) y++;
+    else if (L.pregnant === 0) n++;
+    else if (L.pregnant === "") u++;
+  }
+  $("s1").textContent = y; $("s0").textContent = n; $("su").textContent = u;
+  $("sr").textContent = rows.length - (y + n + u);
+  $("ndone").textContent = y + n + u;
+  $("fill").style.width = (rows.length ? (100 * (y + n + u) / rows.length) : 0) + "%";
+}
+function setL(v){
+  var r = rows[i], L = labels[r.Crash_ID] || {};
+  L.pregnant = (v === "" ? "" : Number(v));
+  labels[r.Crash_ID] = L; dirty = true;
+  render();
+  if (String(L.pregnant) !== "1") setTimeout(function(){ go(1); }, 90);
+}
+function go(d){
+  var j = i + d;
+  if (j < 0 || j >= rows.length) return;
+  i = j; render();
+}
+function nextUnlabelled(){
+  for (var k = 1; k <= rows.length; k++){
+    var j = (i + k) % rows.length;
+    if (labels[rows[j].Crash_ID] === undefined){ i = j; render(); return; }
+  }
+}
+// ---------------------------------------------------------------- events
+Array.prototype.forEach.call($("q1").children, function(b){
+  b.addEventListener("click", function(){ setL(b.dataset.v); });
+});
+["role","outcome","stage"].forEach(function(q){
+  var grp = document.querySelector('[data-q="' + q + '"]');
+  Array.prototype.forEach.call(grp.children, function(b){
+    b.addEventListener("click", function(){
+      var r = rows[i], L = labels[r.Crash_ID] || {};
+      L[q] = (L[q] === b.dataset.v) ? undefined : b.dataset.v;
+      labels[r.Crash_ID] = L; dirty = true; render();
+    });
+  });
+});
+$("notes").addEventListener("input", function(){
+  var r = rows[i], L = labels[r.Crash_ID] || {};
+  L.notes = $("notes").value; labels[r.Crash_ID] = L; dirty = true;
+});
+$("prev").addEventListener("click", function(){ go(-1); });
+$("next").addEventListener("click", function(){ go(1); });
+$("jump").addEventListener("click", nextUnlabelled);
+
+document.addEventListener("keydown", function(e){
+  if ($("review").classList.contains("hide")) return;
+  if (e.target.tagName === "INPUT") return;
+  var k = e.key.toLowerCase();
+  if (k === "y") setL("1");
+  else if (k === "n") setL("0");
+  else if (k === "u") setL("");
+  else if (k === "arrowleft") go(-1);
+  else if (k === "arrowright") go(1);
+  else if (k === "m") showJev();
+  else if (k === "e") expCSV();
+  else return;
+  e.preventDefault();
+});
+
+// ---------------------------------------------------------------- export
+function stamp(){ return new Date().toISOString(); }
+function slug(){ return who.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "") || "reviewer"; }
+function labelled(){
+  var out = [], j, r, L;
+  for (j = 0; j < rows.length; j++){
+    r = rows[j]; L = labels[r.Crash_ID];
+    if (L === undefined || L.pregnant === undefined) continue;
+    out.push({ r: r, L: L });
+  }
+  return out;
+}
+// Matches what p09_validation.py metrics reads: Crash_ID, label_pregnant, source, labeler.
+// "Unclear" is exported as an empty label_pregnant, which that step skips rather than counting.
+function expCSV(){
+  var recs = labelled().map(function(x){
+    return {
+      Crash_ID: x.r.Crash_ID,
+      label_pregnant: x.L.pregnant === "" ? "" : x.L.pregnant,
+      label_role: x.L.role || "",
+      label_outcome: x.L.outcome || "",
+      label_stage: x.L.stage || "",
+      notes: x.L.notes || "",
+      source: "human",
+      labeler: who,
+      double_code: x.r.double_code,
+      timestamp: stamp()
+    };
+  });
+  if (!recs.length){ msg("Nothing labelled yet."); return; }
+  save("validation_labels_" + slug() + ".csv",
+       toCSV(["Crash_ID","label_pregnant","label_role","label_outcome","label_stage",
+              "notes","source","labeler","double_code","timestamp"], recs), "text/csv");
+  dirty = false; msg(recs.length + " labels exported.");
+}
+function expJSON(){
+  var recs = labelled().map(function(x){
+    return { Crash_ID: x.r.Crash_ID, source_stage: x.r.source_stage, stratum: x.r.stratum,
+             double_code: x.r.double_code, label_pregnant: x.L.pregnant,
+             label_role: x.L.role || null, label_outcome: x.L.outcome || null,
+             label_stage: x.L.stage || null, notes: x.L.notes || "", source: "human",
+             labeler: who };
+  });
+  if (!recs.length){ msg("Nothing labelled yet."); return; }
+  save("validation_labels_" + slug() + ".json",
+       JSON.stringify({ labeler: who, exported: stamp(), n: recs.length, labels: recs }, null, 1),
+       "application/json");
+  dirty = false; msg(recs.length + " labels exported.");
+}
+// Every original column preserved, HUMAN_* filled in. Includes the narrative, so it is as
+// sensitive as the input file -- the same handling rules apply to it.
+function expFull(){
+  var head = Object.keys(rows[0]), recs = [], j, r, L, o, k;
+  for (j = 0; j < rows.length; j++){
+    r = rows[j]; L = labels[r.Crash_ID] || {}; o = {};
+    for (k = 0; k < head.length; k++) o[head[k]] = r[head[k]];
+    o.HUMAN_pregnant_person_present_0_1 = (L.pregnant === undefined) ? "" : L.pregnant;
+    o.HUMAN_role = L.role || ""; o.HUMAN_outcome = L.outcome || "";
+    o.HUMAN_stage = L.stage || ""; o.HUMAN_notes = L.notes || "";
+    o.labeler = (L.pregnant === undefined) ? "" : who;
+    o.timestamp = (L.pregnant === undefined) ? "" : stamp();
+    recs.push(o);
+  }
+  save("validation_review_" + slug() + ".csv", toCSV(head, recs), "text/csv");
+  dirty = false; msg("Full review file exported (contains narratives — keep it local).");
+}
+function msg(t){ $("expmsg").textContent = t; }
+$("expcsv").addEventListener("click", expCSV);
+$("expjson").addEventListener("click", expJSON);
+$("expfull").addEventListener("click", expFull);
+
+window.addEventListener("beforeunload", function(e){
+  if (dirty){ e.preventDefault(); e.returnValue = ""; }
+});
+</script>
+</body>
+</html>
