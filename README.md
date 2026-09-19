@@ -90,4 +90,14 @@ not how much text is read.
 
 ## Licence
 
-Not yet chosen. Until one is added, all rights reserved.
+MIT (see `LICENSE`) — use it, change it, build on it, no permission needed. The licence covers
+the code, the schemas and the documentation. It cannot cover the CRIS data, which is not ours to
+license and is not here.
+
+## Getting data
+
+See [DATA_ACCESS.md](DATA_ACCESS.md). Short version: the public TxDOT query tool and the bulk
+request form will not give you narrative text, because the narrative sits in the peace officer's
+crash report and Transportation Code §550.065(c) restricts who may receive it. A narrative
+extract at this scale needs a data-sharing arrangement with TxDOT. The page says what to ask for
+and what to expect.
