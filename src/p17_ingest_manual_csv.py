@@ -61,7 +61,7 @@ def main(argv: list[str]) -> int:
 
     for i, r in enumerate(rows, 2):            # 2 = first data row in a spreadsheet
         cid = (r[cols["crash_id"]] or "").strip()
-        # Excel sometimes renders an integer id as "16479729.0"
+        # Excel sometimes renders an integer id as "12345678.0"
         if cid.endswith(".0"):
             cid = cid[:-2]
         raw = (r[cols["pregnant_1_0"]] or "").strip().lower()

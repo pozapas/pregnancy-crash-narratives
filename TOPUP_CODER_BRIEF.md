@@ -76,8 +76,8 @@ Then:
 - Send the file back by the same route it reached you.
 
 You will not break anything by getting the format slightly wrong — the import checks every row
-and reports what it could not read rather than guessing. Excel rendering `16479729` as
-`16479729.0` is handled automatically.
+and reports what it could not read rather than guessing. Excel rendering `12345678` as
+`12345678.0` is handled automatically.
 
 ## Two things about the order
 
