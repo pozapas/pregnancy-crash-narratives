@@ -93,6 +93,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", default=str(OUT), help="output labels csv")
     ap.add_argument("--force", action="store_true",
                     help="overwrite an existing labels file (a .bak copy is kept regardless)")
+    ap.add_argument("--adjudicated", default=None,
+                    help="csv of settled conflicts whose labels override every coder")
     a = ap.parse_args(argv)
     out_path = Path(a.out)
 
@@ -133,6 +135,24 @@ def main(argv: list[str]) -> int:
             dbl_rows.append(row)
             if not agree:
                 disagreements.append({"Crash_ID": cid, "labels": vals})
+
+    # Settled conflicts override the per-coder labels in the merged file. They are applied AFTER
+    # the double-coded comparison is built, so kappa still reflects what the coders independently
+    # did -- adjudicating a disagreement must not retroactively erase that it happened.
+    adjudicated = {}
+    if a.adjudicated:
+        for r in csv.DictReader(io.open(a.adjudicated, encoding="utf-8-sig")):
+            adjudicated[str(r["Crash_ID"]).strip()] = r
+        applied = 0
+        for row in merged:
+            adj = adjudicated.get(str(row["Crash_ID"]).strip())
+            if adj:
+                row["label_pregnant"] = (adj.get("label_pregnant") or "").strip()
+                row["notes"] = adj.get("notes", "") or row.get("notes", "")
+                row["labeler"] = adj.get("labeler", "Adjudicator")
+                applied += 1
+        print(f"  applied {applied} adjudicated label(s) from "
+              f"{Path(a.adjudicated).name}")
 
     k_val, n_pairs = None, 0
     pairs = [(int(r["label_1"]), int(r["label_2"])) for r in dbl_rows

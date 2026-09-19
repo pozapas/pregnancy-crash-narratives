@@ -214,6 +214,9 @@ def metrics(tau: float, bootstrap: int) -> None:
         })
     A = [r for r in rows if r["stage"] == "A_hit"]
     C = [r for r in rows if r["stage"] == "C_nonhit"]
+    # Split Stage C at the same threshold p03_stageC.py uses to count positives.
+    C_pos = [r for r in C if r["p"] > tau]
+    C_sub = [r for r in C if r["p"] <= tau]
     if not A:
         raise SystemExit("no Stage-A labels present")
 
@@ -299,11 +302,33 @@ def metrics(tau: float, bootstrap: int) -> None:
             "cells": {"tp": utp, "fn": ufn, "fp": ufp, "tn": utn},
             "note": "Unweighted; the sample over-represents the ambiguous band by design.",
         },
+        # The adjudicated share `c` is multiplied against the Stage-C POSITIVE rate k/m, and
+        # p03_stageC.py counts k as non-hits scoring above tau. So c has to be conditioned on
+        # the same threshold: it is the share of the model's positives that survive review.
+        #
+        # Computing it over every adjudicated Stage-C row instead -- as this did until the human
+        # labels arrived and the sub-threshold stratum grew large enough to dominate -- mixes in
+        # rows that were never counted in k and dilutes c toward zero. With the full sample that
+        # was 13/176 = 0.074 against the correct 12/35 = 0.343, a factor of 4.6 on the miss term.
         "stageC_adjudication": {
-            "n_reviewed": len(C),
-            "n_confirmed_true_misses": sum(1 for r in C if r["y"] == 1),
-            "n_rejected": sum(1 for r in C if r["y"] == 0),
-            "confirmed_share": round(sum(1 for r in C if r["y"] == 1) / len(C), 5) if C else None,
+            "threshold": tau,
+            "n_reviewed": len(C_pos),
+            "n_confirmed_true_misses": sum(1 for r in C_pos if r["y"] == 1),
+            "n_rejected": sum(1 for r in C_pos if r["y"] == 0),
+            "confirmed_share": (round(sum(1 for r in C_pos if r["y"] == 1) / len(C_pos), 5)
+                                if C_pos else None),
+            "note": ("Share of Stage-C model positives (p > tau) confirmed on review. Matches "
+                     "the population counted by k/m in the miss term."),
+        },
+        # Reported, not used. The sub-threshold rows are evidence about the threshold itself:
+        # if almost none of them are real, tau is not discarding true cases.
+        "stageC_subthreshold": {
+            "n_reviewed": len(C_sub),
+            "n_confirmed": sum(1 for r in C_sub if r["y"] == 1),
+            "confirmed_share": (round(sum(1 for r in C_sub if r["y"] == 1) / len(C_sub), 5)
+                                if C_sub else None),
+            "note": ("Adjudicated Stage-C rows scoring at or below tau. These are not in k, so "
+                     "they do not enter c; they bound what the threshold discards."),
         },
         "double_coding": {"n_pairs": n_dbl, "cohens_kappa": kappa},
     }

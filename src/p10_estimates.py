@@ -154,12 +154,38 @@ def main(tau: float, B: int) -> None:
 
     # Draws of Se and Sp: beta approximations matched to the bootstrap CIs, which is the
     # honest way to carry a validation set whose effective n is the weighted cell count.
-    def beta_from_ci(point, lo, hi, cap_n=400.0):
-        width = max(hi - lo, 1e-4)
-        n_eff = min(cap_n, max(4.0, point * (1 - point) * (2 * 1.96 / width) ** 2))
+    def beta_from_ci(point, lo, hi, k, n, cap_n=400.0):
+        """Beta draws for a rate, matched to the bootstrap CI where that is meaningful.
+
+        Moment-matching to the CI breaks down at the boundary. When the estimate is exactly 1.0
+        the variance term point*(1-point) is zero, n_eff falls to its floor, and the result was
+        Beta(4, 0.5) -- mean 0.889 for a quantity estimated at 1.0. Feeding that into
+        Rogan-Gladen subtracts a false-positive correction that does not exist, and with the
+        completed labels (Sp = 1.0, zero false positives) it drove the adjusted total BELOW the
+        observed count, which is impossible when the miss term is positive.
+
+        So: where the CI has width, match it. Where it does not -- a boundary estimate -- fall
+        back to the Jeffreys posterior Beta(k + 1/2, n - k + 1/2) on the validation cells that
+        produced the estimate. That is concentrated near the boundary but still carries the
+        uncertainty the sample size warrants, which is the honest answer for "0 errors in n".
+        """
+        width = hi - lo
+        degenerate = (width <= 1e-6) or point >= 1.0 - 1e-9 or point <= 1e-9
+        if degenerate:
+            if n and n > 0:
+                return max(k + 0.5, 0.5), max(n - k + 0.5, 0.5)
+            return max(point * 30.0, 0.5), max((1 - point) * 30.0, 0.5)
+        n_eff = min(cap_n, max(4.0, point * (1 - point) * (2 * 1.96 / max(width, 1e-4)) ** 2))
         return max(point * n_eff, 0.5), max((1 - point) * n_eff, 0.5)
-    a_se, b_se = beta_from_ci(se_hat, se_lo, se_hi)
-    a_sp, b_sp = beta_from_ci(sp_hat, sp_lo, sp_hi)
+
+    # Unweighted validation cells back the boundary case: tp/fn for Se, tn/fp for Sp.
+    uc = v.get("unweighted_for_comparison", {}).get("cells", {})
+    se_k, se_n = uc.get("tp", 0), uc.get("tp", 0) + uc.get("fn", 0)
+    sp_k, sp_n = uc.get("tn", 0), uc.get("tn", 0) + uc.get("fp", 0)
+    a_se, b_se = beta_from_ci(se_hat, se_lo, se_hi, se_k, se_n)
+    a_sp, b_sp = beta_from_ci(sp_hat, sp_lo, sp_hi, sp_k, sp_n)
+    print(f"Se ~ Beta({a_se:.2f}, {b_se:.2f})  mean {a_se/(a_se+b_se):.4f}   "
+          f"Sp ~ Beta({a_sp:.2f}, {b_sp:.2f})  mean {a_sp/(a_sp+b_sp):.4f}", flush=True)
 
     rows, boot = [], {y: {"adj": [], "miss": [], "rate": [], "sens": []} for y in years}
     for y in years:
