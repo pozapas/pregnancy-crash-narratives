@@ -155,6 +155,9 @@ def main() -> None:
         m["nDoubleRead"] = fmt(dc.get("n_rows_with_two_readings", 0))
         m["nCoders"] = str(len(mg.get("labellers", [])))
         m["nConflicts"] = fmt(dc.get("n_disagreements", 0))
+        # Rows read by exactly one coder: total labelled minus the double-read set.
+        m["nSingleCoded"] = fmt(max(mg.get("n_unique_crashes", 0)
+                                    - dc.get("n_rows_with_two_readings", 0), 0))
 
     rev = (json.loads((OUTD / "pii_reviewset_report.json").read_text())
            if (OUTD / "pii_reviewset_report.json").exists() else {})
