@@ -19,7 +19,32 @@ from pathlib import Path
 ROOT = Path(os.environ.get("JEV_ROOT") or Path(__file__).resolve().parents[2])
 SRC = ROOT / "paper2/src"
 PY = os.environ.get("JEV_PYTHON") or sys.executable
-R = os.environ.get("JEV_RSCRIPT", "Rscript")
+def _find_rscript() -> str:
+    """Locate Rscript: explicit override, then PATH, then the usual Windows install.
+
+    Defaulting to the bare name "Rscript" is right for a released repo but wrong on a machine
+    where R is installed and not on PATH -- which is the common Windows case, and which broke
+    this build until it was caught. Search rather than assume, and fall back to the bare name so
+    the error message is still the familiar one.
+    """
+    import glob
+    import shutil
+    env = os.environ.get("JEV_RSCRIPT")
+    if env:
+        return env
+    found = shutil.which("Rscript")
+    if found:
+        return found
+    for pat in (r"C:/Program Files/R/R-*/bin/Rscript.exe",
+                r"C:/Program Files/R/R-*/bin/x64/Rscript.exe",
+                "/usr/local/bin/Rscript", "/usr/bin/Rscript"):
+        hits = sorted(glob.glob(pat))
+        if hits:
+            return hits[-1]          # highest version
+    return "Rscript"
+
+
+R = _find_rscript()
 
 # (key, description, argv, costs_money)
 STEPS = [
