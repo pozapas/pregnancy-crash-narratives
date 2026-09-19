@@ -85,7 +85,7 @@ def f1(d):
     n_scr = sum(c["nonhits_screened"] for c in cov["by_year"].values())
     n_pos = sum(c["nonhit_positives"] for c in cov["by_year"].values())
     adj = d["val"]["stageC_adjudication"]
-    side = (f"Stage C — what the regex missed\n"
+    side = (f"Stage C - what the regex missed\n"
             f"{n_scr:,} random non-hit narratives screened\n"
             f"{n_pos} Jev positives  →  {adj['n_confirmed_true_misses']} of "
             f"{adj['n_reviewed']} adjudicated candidates confirmed\n"

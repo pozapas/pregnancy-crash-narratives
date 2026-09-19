@@ -105,12 +105,12 @@
 <div class="wrap">
 
 <h1>Narrative adjudication</h1>
-<p class="sub">Pregnancy in Texas crash narratives &mdash; validation labelling</p>
+<p class="sub">Pregnancy in Texas crash narratives - validation labelling</p>
 
 <div class="banner" id="privacy">
   <b>Your data never leaves this computer.</b> This page holds no narratives and makes no network
   requests. Your CSV is read in the browser and stays in memory. Nothing is uploaded, and nothing
-  is saved automatically &mdash; <b>use Export to save your work</b>, and export before closing
+  is saved automatically - <b>use Export to save your work</b>, and export before closing
   the tab or you will lose it.
 </div>
 
@@ -138,7 +138,7 @@
   <div class="card">
     <div class="row">
       <input type="checkbox" id="blind" checked style="width:auto">
-      <label for="blind" style="margin:0">Blind mode &mdash; hide the model's answers while I read</label>
+      <label for="blind" style="margin:0">Blind mode - hide the model's answers while I read</label>
     </div>
     <p class="hint">Recommended. Seeing the model's answer first biases adjudication, and these
       labels are what its accuracy is measured against. You can reveal per narrative with
@@ -154,8 +154,8 @@
       <div class="grow">
         <div class="meta">
           <span>Row <b id="pos">1</b> of <b id="tot">0</b></span>
-          <span>Crash <b id="cid">&mdash;</b></span>
-          <span>Year <b id="yr">&mdash;</b></span>
+          <span>Crash <b id="cid">&#8212;</b></span>
+          <span>Year <b id="yr">&#8212;</b></span>
           <span id="stg"></span>
           <span id="dbl"></span>
         </div>
@@ -170,7 +170,7 @@
       <div><span class="muted">model p(pregnancy mentioned):</span> <b id="jp"></b></div>
       <div><span class="muted">role / outcome / stage:</span> <b id="jros"></b></div>
     </div>
-    <p class="hint" id="revealhint">Model answers hidden &mdash; press <span class="kbd">M</span> to reveal for this narrative.</p>
+    <p class="hint" id="revealhint">Model answers hidden - press <span class="kbd">M</span> to reveal for this narrative.</p>
 
     <p style="margin:15px 0 0"><b>Does this narrative state that a person involved in the crash was pregnant?</b></p>
     <div class="choices" id="q1">
@@ -356,7 +356,7 @@ function describe(){
            : "the full set";
   $("assignmsg").textContent = "You are " + role.name + ", assigned " + what
     + (allRows.length
-        ? " — " + n + (role.assign === "dbl" ? " of " + allRows.length : "") + " rows."
+        ? " - " + n + (role.assign === "dbl" ? " of " + allRows.length : "") + " rows."
         : ".");
 }
 function ready(){
@@ -422,7 +422,7 @@ function render(){
   if (!r) return;
   $("pos").textContent = i + 1;
   $("cid").textContent = r.Crash_ID;
-  $("yr").textContent = r.Year || "—";
+  $("yr").textContent = r.Year || " - ";
   $("stg").innerHTML = '<span class="pill">' +
     (r.source_stage === "A_hit" ? "Stage A" : "Stage C") + "</span>";
   $("dbl").innerHTML = String(r.double_code) === "1"
@@ -454,7 +454,7 @@ function showJev(){
   var r = rows[i];
   $("jp").textContent = r.jev_preg_mentioned_p;
   $("jros").textContent = [r.jev_preg_role, r.jev_preg_outcome, r.jev_preg_stage]
-    .filter(Boolean).join(" / ") || "—";
+    .filter(Boolean).join(" / ") || " - ";
   $("jevbox").classList.remove("hide");
   $("revealhint").classList.add("hide");
 }
@@ -590,7 +590,7 @@ function expFull(){
     recs.push(o);
   }
   save("validation_review_" + slug() + ".csv", toCSV(head, recs), "text/csv");
-  dirty = false; msg("Full review file exported (contains narratives — keep it local).");
+  dirty = false; msg("Full review file exported (contains narratives - keep it local).");
 }
 function msg(t){ $("expmsg").textContent = t; }
 $("expcsv").addEventListener("click", expCSV);
