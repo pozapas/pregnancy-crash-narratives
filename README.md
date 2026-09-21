@@ -5,9 +5,8 @@ fetal harm in police-reported crashes, recovered from free-text crash narratives
 calibrated decision model and corrected for classifier misclassification.
 
 **No data is in this repository, and none can be added.** The narratives are Texas CRIS records
-supplied under a data agreement that does not permit redistribution, and a residual-identifier
-screen finds that roughly 37% still contain a name, address or other identifier after two
-redaction passes. `.gitignore` blocks every tabular and serialised format for that reason. What
+supplied under a data agreement that does not permit redistribution, and a residual-identifier screen finds that 43% of the screened fetal-harm narratives still
+contain a name, address or other identifier after two redaction passes. `.gitignore` blocks every tabular and serialised format for that reason. What
 is released is the schema, the pipeline, and the review tool - enough for another state to run
 the same study on its own corpus.
 
@@ -40,8 +39,21 @@ src/         the pipeline, numbered in dependency order
   p11, p16                  residual-PII screens (display set, adjudication set)
   p12_models.py             documentation / trend / severity+bias / county models
   p08_figures, p09_tables   figures and tables
-  p13, p14                  number macros and a check that none is undefined
+    p13, p14                  number macros and a check that none is undefined
   p15_merge_labels.py       merge coder exports, Cohen's kappa, disagreements
+  p18, p19                  the method framework figure, as a drawing and as a diagram
+  p20_submission_tables.py  the manuscript's tables, from the same artefacts as the prose
+  p21..p25                  packaging, and four checks: macro use, reference kinds,
+                            front-matter limits, and no placeholder left behind
+  p26_assign_coders.py      rotating pairs: every row read by two of three coders
+  p27_age_standardize.py    age-specific fertility rates, for the expected count
+  p28..p30                  merge coder returns, build adjudication, finalise labels
+  p31..p34                  the stratified Stage-C read: frame, packet, adjudication,
+                            and the design-weighted estimate of what the model missed
+  p35_overleaf_zip.py       the manuscript sources that compile, and nothing else
+  p36, p37                  the floor-band search and its census
+  check_refs.py             every citation against the bibliography and a claims ledger
+  style_lint.py             prose rules, applied to the manuscript sections
   make.py                   one command, dependency order, spend-gated
 webapp/      browser adjudication tool (see below)
 ```
@@ -54,6 +66,7 @@ Paths are read from the environment, with sensible defaults:
 |---|---|---|
 | `JEV_ROOT` | project root containing `paper2/` | inferred from the script location |
 | `CRIS_DATA_DIR` | directory holding the CRIS extract | none - required for `p01`, `p04`, `p06` |
+| `JEV_CORPUS_CSV` | the narrative CSV itself, which is restricted and is not in this repository | none - required for the steps that read narrative text |
 | `JEV_PYTHON`, `JEV_RSCRIPT` | interpreters used by `make.py` | the running Python; `Rscript` on PATH |
 | `TYPESAFE_API_KEY` | model API key, read from the environment | none - required for the API steps |
 

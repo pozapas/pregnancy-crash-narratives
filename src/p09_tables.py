@@ -184,11 +184,11 @@ def t3() -> None:
     ]
     emit(pd.DataFrame(rows, columns=["Ascertainment step", "Value"]), "T3_funnel",
          "Ascertainment funnel and extractor validation.", "tab:funnel",
-         # Read the label provenance rather than asserting it. This note claimed "LLM
+         # Read the label provenance rather than asserting it. This note claimed "model
          # pre-annotation; PRELIMINARY" as a constant and survived the switch to human labels,
          # contradicting the rest of the paper in the one place a reader checks provenance.
          note="Se, Sp and PPV are inverse-probability weighted to the Stage-A hit population. "
-              + ("Labels are LLM pre-annotation; PRELIMINARY until human adjudication."
+              + ("Labels are model pre-annotation; PRELIMINARY until human adjudication."
                  if val.get("preliminary") else
                  f"Labels are human adjudication: {val['n_labelled_stageA']:,} Stage-A and "
                  f"{val['n_labelled_stageC']:,} Stage-C narratives, read blind. "
@@ -333,10 +333,19 @@ def t8() -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
     TD.mkdir(parents=True, exist_ok=True)
+    failed = []
     for fn in (t1, t2, t3, t4, t5, t6, t7, t8):
         print(fn.__name__, flush=True)
         try:
             fn()
         except Exception as exc:
             import traceback; print(f"  FAILED: {exc}"); traceback.print_exc()
+            failed.append(fn.__name__)
+    # A table that does not emit leaves the previous one on disk, and every downstream check
+    # then passes on a file that is merely old. Fail loudly instead.
+    if failed:
+        print(f"\n{len(failed)} table(s) did not emit: {', '.join(failed)}")
+        sys.exit(1)

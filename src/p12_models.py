@@ -120,32 +120,122 @@ def m1_documentation(d: pd.DataFrame, meta: dict) -> dict:
 
 
 def m2_trend() -> dict:
+    """Trend in the displayed driver rate, refitted across the bootstrap chain.
+
+    Review issue 8. The earlier version fitted one series of rounded ALL-ROLE medians against a
+    female-driver offset, with dispersion fixed at one and 2025 included. It therefore described
+    a different numerator from the rate it was quoted beside, and its interval carried none of
+    the correction uncertainty the bootstrap already computes.
+
+    This fits the same model once per replicate to that replicate's matched driver counts, which
+    is the numerator of the rate in Figure 4, and reports the percentile interval of the annual
+    rate ratio across replicates. Dispersion is estimated rather than assumed. The 2017-to-2024
+    fit beside it drops the partial final year.
+    """
     e = pd.read_csv(EST)
     e["year"] = e["Year"].astype(int)
-    e["y2020"] = (e["year"] == 2020).astype(int)
-    e["t"] = e["year"] - 2017
-    e["cases"] = e["adjusted_total"].round().astype(int)
-    e["expo"] = np.log(e["female_drivers_15_49"].clip(lower=1))
-    nb = smf.glm("cases ~ t + y2020", data=e, offset=e["expo"],
-                 family=sm.families.NegativeBinomial(alpha=1.0)).fit()
-    po = smf.glm("cases ~ t + y2020", data=e, offset=e["expo"],
+    draws_file = OUTD / "trend_draws.json"
+    rng_tr = np.random.default_rng(11)
+
+    def fit_one(counts, expo, years, y2020):
+        """One negative-binomial fit; returns the annual rate ratio, or None if it will not fit."""
+        df = pd.DataFrame({"cases": np.round(counts).astype(int), "t": years - years.min(),
+                           "y2020": y2020, "expo": expo})
+        try:
+            m = smf.glm("cases ~ t + y2020", data=df, offset=df["expo"],
+                        family=sm.families.NegativeBinomial(alpha=alpha_hat)).fit()
+        except Exception:
+            return None, None
+        # The spread of point estimates across replicates carries the CORRECTION uncertainty
+        # only. The regression's own sampling error has to be added, or the combined interval
+        # is narrower than the single fit it is meant to widen. One normal draw per replicate
+        # around that replicate's own coefficient does it.
+        bt = rng_tr.normal(float(m.params["t"]), float(m.bse["t"]))
+        bc = rng_tr.normal(float(m.params["y2020"]), float(m.bse["y2020"]))
+        return float(np.exp(bt)), float(np.exp(bc))
+
+    # Dispersion, estimated once on the point series rather than fixed at one.
+    share = ("driver_share_matched_15_49" if "driver_share_matched_15_49" in e
+             else "driver_share_of_cases")
+    pt_cases = np.round(e["adjusted_total"] * e[share]).astype(int)
+    pt_expo = np.log(e["female_drivers_15_49"].clip(lower=1))
+    base = pd.DataFrame({"cases": pt_cases, "t": e["year"] - e["year"].min(),
+                         "y2020": (e["year"] == 2020).astype(int), "expo": pt_expo})
+    po = smf.glm("cases ~ t + y2020", data=base, offset=base["expo"],
                  family=sm.families.Poisson()).fit()
-    out = {"n_years": int(len(e)), "family": "negative binomial (alpha=1), log link",
-           "offset": "log(female drivers 15-49)",
-           "terms": [{"term": t, "beta": round(float(nb.params[t]), 5),
-                      "se": round(float(nb.bse[t]), 5),
-                      "rate_ratio": round(float(np.exp(nb.params[t])), 4),
-                      "rr_lo": round(float(np.exp(nb.params[t] - 1.96 * nb.bse[t])), 4),
-                      "rr_hi": round(float(np.exp(nb.params[t] + 1.96 * nb.bse[t])), 4),
-                      "p": round(float(nb.pvalues[t]), 5)} for t in nb.params.index],
-           "poisson_deviance_over_df": round(float(po.deviance / po.df_resid), 3),
-           "dispersion_note": ("Deviance/df near 1 means over-dispersion is mild and the NB and "
-                               "Poisson fits agree; the NB is kept as the primary specification "
-                               "because the outcome is an ADJUSTED count carrying validation and "
-                               "Stage-C uncertainty of its own, which Poisson would understate. "
-                               "Read a value well above 1.5 as the NB doing real work."),
-           "annual_rate_ratio": round(float(np.exp(nb.params["t"])), 4),
-           "covid_2020_rate_ratio": round(float(np.exp(nb.params["y2020"])), 4)}
+    try:
+        nb_mle = sm.NegativeBinomial(base["cases"],
+                                     sm.add_constant(base[["t", "y2020"]]),
+                                     offset=base["expo"]).fit(disp=0)
+        alpha_hat = float(max(nb_mle.params.get("alpha", 1.0), 1e-6))
+    except Exception:
+        alpha_hat = 1.0
+
+    nb = smf.glm("cases ~ t + y2020", data=base, offset=base["expo"],
+                 family=sm.families.NegativeBinomial(alpha=alpha_hat)).fit()
+
+    boot_rr, boot_covid = [], []
+    n_fail = 0
+    if draws_file.exists():
+        d = json.loads(draws_file.read_text())
+        yrs = np.array(d["years"], dtype=int)
+        expo = np.log(np.array([max(d["female_drivers_15_49"][str(y)], 1) for y in yrs],
+                               dtype=float))
+        y2020 = (yrs == 2020).astype(int)
+        mat = np.array([d["driver_counts"][str(y)] for y in yrs], dtype=float)   # years x B
+        for b in range(mat.shape[1]):
+            rr, cv = fit_one(mat[:, b], expo, yrs, y2020)
+            if rr is None:
+                n_fail += 1
+            else:
+                boot_rr.append(rr)
+                boot_covid.append(cv)
+
+    def pct(a, q):
+        return round(float(np.percentile(a, q)), 4) if len(a) else None
+
+    # The same fit on complete years only; 2025 covers about 97% of a year.
+    full = base[base["t"] < (e["year"].max() - e["year"].min())]
+    nb_full = smf.glm("cases ~ t + y2020", data=full, offset=full["expo"],
+                      family=sm.families.NegativeBinomial(alpha=alpha_hat)).fit()
+
+    out = {
+        "n_years": int(len(e)),
+        "outcome": f"adjusted_total * {share}, the numerator of the displayed rate",
+        "family": f"negative binomial (alpha={alpha_hat:.4f}, estimated), log link",
+        "offset": "log(female drivers 15-49)",
+        "terms": [{"term": t, "beta": round(float(nb.params[t]), 5),
+                   "se": round(float(nb.bse[t]), 5),
+                   "rate_ratio": round(float(np.exp(nb.params[t])), 4),
+                   "rr_lo": round(float(np.exp(nb.params[t] - 1.96 * nb.bse[t])), 4),
+                   "rr_hi": round(float(np.exp(nb.params[t] + 1.96 * nb.bse[t])), 4),
+                   "p": round(float(nb.pvalues[t]), 5)} for t in nb.params.index],
+        "poisson_deviance_over_df": round(float(po.deviance / po.df_resid), 3),
+        "alpha_estimated": round(alpha_hat, 5),
+        "annual_rate_ratio": round(float(np.exp(nb.params["t"])), 4),
+        "covid_2020_rate_ratio": round(float(np.exp(nb.params["y2020"])), 4),
+        "bootstrap": {
+            "n_replicates_fitted": len(boot_rr),
+            "n_replicates_failed": n_fail,
+            "annual_rate_ratio_median": pct(boot_rr, 50),
+            "annual_rate_ratio_ci95": [pct(boot_rr, 2.5), pct(boot_rr, 97.5)],
+            "covid_2020_rate_ratio_ci95": [pct(boot_covid, 2.5), pct(boot_covid, 97.5)],
+            "note": "Refit once per bootstrap replicate on that replicate's matched driver "
+                    "counts, then one normal draw around that fit's own coefficient and "
+                    "standard error, so the interval carries correction uncertainty AND "
+                    "the regression's sampling error rather than only the first.",
+        },
+        "complete_years_only": {
+            "years": [int(e["year"].min()), int(e["year"].max() - 1)],
+            "annual_rate_ratio": round(float(np.exp(nb_full.params["t"])), 4),
+            "rr_lo": round(float(np.exp(nb_full.params["t"] - 1.96 * nb_full.bse["t"])), 4),
+            "rr_hi": round(float(np.exp(nb_full.params["t"] + 1.96 * nb_full.bse["t"])), 4),
+            "note": "2025 covers about 97% of a year, so it is dropped here.",
+        },
+        "dispersion_note": ("Alpha is estimated by maximum likelihood rather than fixed at one. "
+                            "Deviance/df from the Poisson fit is reported beside it as the "
+                            "over-dispersion diagnostic."),
+    }
     pd.DataFrame(out["terms"]).to_csv(OUTD / "model_trend.csv", index=False)
     return out
 
@@ -157,6 +247,40 @@ def m3_severity(d: pd.DataFrame) -> dict:
     naive_or = float(np.exp(om.params["y"]))
     lo = float(np.exp(om.params["y"] - 1.96 * om.bse["y"]))
     hi = float(np.exp(om.params["y"] + 1.96 * om.bse["y"]))
+
+    # ---------------------------------------------------------------- proportional odds, tested
+    # Review issue 18. The ordinal model asserts one exposure odds ratio at every cumulative
+    # threshold. Fit each threshold separately and see whether that holds; a binary
+    # serious-or-fatal model is one of these cuts, so this is also where its 1.622 comes from.
+    po_cuts = []
+    levels = sorted(s["sev_ord"].dropna().unique())
+    for cut in levels[:-1]:
+        yy = (s["sev_ord"] > cut).astype(int)
+        if yy.nunique() < 2:
+            continue
+        try:
+            fit = sm.GLM(yy, sm.add_constant(X), family=sm.families.Binomial()).fit()
+            po_cuts.append({
+                "threshold": f"> {cut}",
+                "n_above": int(yy.sum()),
+                "odds_ratio": round(float(np.exp(fit.params["y"])), 4),
+                "ci95": [round(float(np.exp(fit.params["y"] - 1.96 * fit.bse["y"])), 4),
+                         round(float(np.exp(fit.params["y"] + 1.96 * fit.bse["y"])), 4)],
+            })
+        except Exception as exc:                       # a cut with too few events will not fit
+            po_cuts.append({"threshold": f"> {cut}", "error": str(exc)[:80]})
+    _ors = [c["odds_ratio"] for c in po_cuts if "odds_ratio" in c]
+    po_diag = {
+        "assumption": "One exposure odds ratio at every cumulative threshold.",
+        "thresholds": po_cuts,
+        "spread": (round(max(_ors) / min(_ors), 3) if len(_ors) > 1 and min(_ors) > 0 else None),
+        "verdict": ("The threshold-specific odds ratios differ by more than a factor of two, so "
+                    "the proportional-odds assumption does not hold and the ordinal estimate is "
+                    "an average across thresholds that differ."
+                    if len(_ors) > 1 and min(_ors) > 0 and max(_ors) / min(_ors) > 2
+                    else "The threshold-specific odds ratios are of similar size, which is what "
+                         "proportional odds requires."),
+    }
 
     # Quantitative bias analysis (§4.6). Documentation is severity-dependent: M1 measures how
     # much. We reclassify exposure over a grid of documentation probabilities by severity
@@ -195,11 +319,21 @@ def m3_severity(d: pd.DataFrame) -> dict:
     unw = wlogit(s, s["serious"], np.ones(len(s)))
     naive_bin_or_unw = float(np.exp(unw.params["y_use"]))
 
+    # The nine-year expected total for the band the surveillance comparison uses, so an implied
+    # count can be judged against the same population and the same span rather than against an
+    # annual figure from a wider one. Review issue 10.
+    try:
+        _est = pd.read_csv(OUTD / "annual_estimates.csv")
+        expected_9yr = float(_est["expected_pregnant_female_drivers_15_44"].sum())
+    except Exception:
+        expected_9yr = None
+
     grid = []
-    for d_hi in (0.5, 0.7, 0.9, 1.0):          # P(documented | serious crash)
-        for d_lo in (0.2, 0.3, 0.5, 0.7, 0.9):  # P(documented | non-serious crash)
-            if d_lo > d_hi:
-                continue
+    # Documentation probabilities now reach down to the surveillance estimate of about 0.03,
+    # which the old floor of 0.20 excluded, and both orderings are evaluated.
+    DOC_PROBS = (0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0)
+    for d_hi in DOC_PROBS:                      # P(documented | serious crash)
+        for d_lo in DOC_PROBS:                  # P(documented | non-serious crash)
             parts, implied = [], 0.0
             for ser, p_doc in ((1, d_hi), (0, d_lo)):
                 st = s[s["serious"] == ser]
@@ -222,24 +356,51 @@ def m3_severity(d: pd.DataFrame) -> dict:
                              "or": round(float(np.exp(fit.params["y_use"])), 4),
                              # stratum-specific: serious cases are ~1 % of the frame, so an
                              # equal-weight average of 1/d_hi and 1/d_lo is not the implied total
-                             "implied_true_pregnancies": round(implied, 0)})
+                             "implied_true_pregnancies": round(implied, 0),
+                             # A scenario is inadmissible when it needs more pregnant drivers
+                             # than vital statistics allow over the same nine years.
+                             "exceeds_expected_9yr": (None if expected_9yr is None
+                                                      else bool(implied > expected_9yr)),
+                             "documentation_ordering": ("serious better" if d_hi > d_lo
+                                                        else "equal" if d_hi == d_lo
+                                                        else "non-serious better")})
             except Exception as exc:
                 grid.append({"doc_prob_serious": d_hi, "doc_prob_nonserious": d_lo,
                              "or": None, "error": str(exc)[:80]})
     pd.DataFrame(grid).to_csv(OUTD / "model_severity_bias_grid.csv", index=False)
-    ors = [g["or"] for g in grid if g.get("or")]
+    # A cell whose fit failed carries or=None. Dropping those silently would narrow the
+    # published envelope with no signal anywhere, and the truthiness test this replaces would
+    # also have dropped a legitimate odds ratio of exactly zero.
+    bad = [g for g in grid if g.get("or") is None]
+    if bad:
+        raise RuntimeError(
+            f"{len(bad)} of {len(grid)} bias-analysis cells failed to fit; the envelope would "
+            f"be narrower than the grid warrants. First failure: {bad[0]}")
+    ors = [g["or"] for g in grid if g.get("or") is not None]
     return {
+        "proportional_odds_diagnostic": po_diag,
         "n": int(len(s)), "outcome": "KABCO crash severity (ordinal)",
         "naive_or_documentation": round(naive_or, 4),
         "naive_or_ci95": [round(lo, 4), round(hi, 4)],
         "naive_or_binary_serious": round(naive_bin_or, 4),
         "naive_or_binary_serious_unweighted": round(naive_bin_or_unw, 4),
         "collapse_vs_weighting": ("Binary OR is identical weighted and unweighted, so the gap "
-                                  "from the ordinal OR is outcome collapse, not case-control "
-                                  "weighting."),
+                                  "from the ordinal OR is not case-control weighting. See "
+                                  "proportional_odds_diagnostic for whether it is the collapse "
+                                  "alone."),
         "bias_adjusted_or_range": [round(min(ors), 4), round(max(ors), 4)] if ors else None,
         "bias_envelope_outcome": "serious or fatal crash (binary), population-weighted",
         "bias_grid_n": len(grid),
+        "bias_grid_expected_9yr": (None if expected_9yr is None
+                                   else round(expected_9yr, 0)),
+        "bias_grid_note": ("Documentation probabilities run from 0.02, which is the "
+                           "order of the surveillance estimate, to 1.0. Both orderings "
+                           "of the two strata are evaluated rather than only the one "
+                           "the documentation model appears to support, because that "
+                           "model estimates a joint event and does not identify the "
+                           "conditional documentation probability. Each implied count "
+                           "is a nine-year total and is compared against the nine-year "
+                           "expected total for the same age band."),
         "interpretation": ("Association only. Pregnancy documentation is not randomly assigned "
                            "and is itself severity-dependent (see M1), so this is reported as an "
                            "association with its detection-bias envelope and carries no causal "

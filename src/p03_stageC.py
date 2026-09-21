@@ -24,7 +24,7 @@ and k_t Jev positives (p > tau):
     rhat    = sum_t H_t / (sum_t H_t + sum_t Nmiss_t)       prefilter recall
               where H_t is the Stage-B-confirmed hit count in year t
 
-k_t counts positives that SURVIVE ADJUDICATION. In v1 that adjudication is LLM pre-annotation
+k_t counts positives that SURVIVE ADJUDICATION. In v1 that adjudication is model pre-annotation
 plus a human read (Step 5), so the recall is reported twice: an upper bound using all Jev
 positives unadjudicated, and the adjudicated value marked preliminary until the human read
 lands. Both carry Wilson intervals on k_t/m_t propagated through the scaling.

@@ -35,11 +35,14 @@ THREE ESTIMATORS, REPORTED SIDE BY SIDE, because they fail in different directio
                     it does not throw away the information in a 0.6 or a 0.4.
   adjusted          the Rogan-Gladen chain above. The headline.
 
-THE BOOTSTRAP IS ONE CHAIN, NOT THREE. B = 2,000 draws; each draw resamples the validation set
-WITHIN STRATUM (so the design weights survive), recomputes Se and Sp from that resample,
-resamples the Stage-C screen and the adjudicated share, and draws O_t binomially. Intervals
-that came from propagating only the last of those would be far too narrow, and the validation
-set is the dominant term.
+THE BOOTSTRAP IS ONE CHAIN, AND ONE REPLICATE IS ONE SET OF PARAMETERS. B = 2,000 draws.
+p09_validation.py resamples the validation set WITHIN STRATUM, so the design weights survive,
+and writes one Se and one Sp per replicate to bootstrap_draws.json. This script reads
+replicate b and applies that SAME Se, Sp, Stage-C screen rate and adjudicated share to EVERY
+year before summing, because those are properties of the study rather than of a year.
+Drawing them inside the year loop, as this did until 2026-09-21, gave nine independent draws
+of one quantity and narrowed the study-period interval that sums them. Only O_t is drawn per
+year, binomially, because only O_t is a per-year count.
 
 RATES ARE ROLE-MATCHED. p04_persons.R established that the CRIS person extract holds one row
 per unit, so there is no passenger denominator. Rates are therefore driver-role cases over
@@ -150,6 +153,23 @@ def main(tau: float, B: int) -> None:
     M_POOL = sum(c.get("nonhits_screened", 0) for c in cov.values())
     K_POOL = sum(c.get("nonhit_positives", 0) for c in cov.values())
     den = load_denominators()
+    # Review issue 4. A driver-role narrative counts toward the rate only when its crash
+    # holds a female driver in the band the denominator is built on, so numerator and
+    # denominator describe the same people. Built by issue4_matched.py.
+    match_file = ROOT / "paper2/data/persons/role_match_report.json"
+    RM = json.loads(match_file.read_text())["by_year"] if match_file.exists() else {}
+    # Review issue 5. One general fertility rate applied to every crash-involved driver
+    # understates the expectation, because those drivers sit in the higher-fertility ages.
+    # p27_age_standardize.py computes the per-year correction from Texas age-specific birth
+    # rates and the drivers' own age distribution.
+    std_file = ROOT / "paper2/data/persons/age_standardization.json"
+    AS = json.loads(std_file.read_text())["by_year"] if std_file.exists() else {}
+    if not AS:
+        print("WARNING: no age_standardization.json; the expected count is not "
+              "age-standardized, which review issue 5 rejects", flush=True)
+    if not RM:
+        print("WARNING: no role_match_report.json; falling back to the unmatched driver "
+              "share, which review issue 4 rejects", flush=True)
     ext = json.loads(EXT.read_text())["by_year"]
 
     # Draws of Se and Sp: beta approximations matched to the bootstrap CIs, which is the
@@ -187,6 +207,36 @@ def main(tau: float, B: int) -> None:
     print(f"Se ~ Beta({a_se:.2f}, {b_se:.2f})  mean {a_se/(a_se+b_se):.4f}   "
           f"Sp ~ Beta({a_sp:.2f}, {b_sp:.2f})  mean {a_sp/(a_sp+b_sp):.4f}", flush=True)
 
+    # ---------------------------------------------------------------- ONE DRAW PER REPLICATE
+    # Se, Sp, the Stage-C screen rate and the adjudicated confirmation share are study-level
+    # parameters. Drawn once here and reused for every year, so replicate b is internally
+    # consistent and the summed interval carries the covariance they share.
+    draws_file = VAL.parent / "bootstrap_draws.json"
+    se_shared = sp_shared = None
+    src_se = src_sp = "jeffreys/beta"
+    if draws_file.exists():
+        _d = json.loads(draws_file.read_text())
+        if len(_d.get("se", [])) >= B:
+            _se = np.asarray(_d["se"][:B], dtype=float)
+            _sp = np.asarray(_d["sp"][:B], dtype=float)
+            # Resampling is informative only where the estimate is off the boundary. With zero
+            # false positives every resample returns Sp = 1 exactly, and using that would assert
+            # a specificity known without error. The Jeffreys posterior is the honest answer
+            # there, and is what beta_from_ci already falls back to.
+            if _se.std() > 1e-9:
+                se_shared, src_se = _se, "within-stratum resampling"
+            if _sp.std() > 1e-9:
+                sp_shared, src_sp = _sp, "within-stratum resampling"
+    if se_shared is None:
+        se_shared = rng.beta(a_se, b_se, B)
+    if sp_shared is None:
+        sp_shared = rng.beta(a_sp, b_sp, B)
+    draw_source = f"Se from {src_se}, Sp from {src_sp}"
+    c_shared = rng.beta(c_k + 0.5, c_n - c_k + 0.5, B) if c_n else np.zeros(B)
+    kd_shared = (rng.binomial(M_POOL, K_POOL / M_POOL, B) / M_POOL
+                 if M_POOL > 0 else np.full(B, np.nan))
+    print(f"shared parameter draws: {draw_source}", flush=True)
+
     rows, boot = [], {y: {"adj": [], "miss": [], "rate": [], "sens": []} for y in years}
     for y in years:
         h, nh = H[y], NH.get(y, 0)
@@ -196,13 +246,11 @@ def main(tau: float, B: int) -> None:
         partial = cv.get("partial", True)
         m_use, k_use = M_POOL, K_POOL       # pooled miss rate, see module docstring
 
-        se_d = rng.beta(a_se, b_se, B)
-        sp_d = rng.beta(a_sp, b_sp, B)
+        # Study-level parameters come from the shared draws; only O_t is per-year.
+        se_d, sp_d, c_d = se_shared, sp_shared, c_shared
         o_d = rng.binomial(h, min(max(o / h, 0.0), 1.0), B).astype(float)
-        c_d = rng.beta(c_k + 0.5, c_n - c_k + 0.5, B) if c_n else np.zeros(B)
         if m_use > 0:
-            kd = rng.binomial(m_use, k_use / m_use, B) / m_use
-            miss_d = nh * kd * c_d
+            miss_d = nh * kd_shared * c_d
         else:
             miss_d = np.full(B, np.nan)
 
@@ -227,13 +275,20 @@ def main(tau: float, B: int) -> None:
         drv_1544 = dd.get("drivers_15_44", 0)
         role_y = ROLE.get(y, {})
         obs_driver = role_y.get("driver", 0.0)
-        driver_share = obs_driver / o if o else 0.0
-        rate_d = 1000.0 * adj_d * driver_share / drv_1549 if drv_1549 else np.full(B, np.nan)
+        driver_share = obs_driver / o if o else 0.0          # unmatched, reported for comparison
+        rm = RM.get(str(y), {})
+        share_1549 = rm.get("share_driver_matched_15_49", driver_share)
+        share_1544 = rm.get("share_driver_matched_15_44", driver_share)
+        rate_d = 1000.0 * adj_d * share_1549 / drv_1549 if drv_1549 else np.full(B, np.nan)
 
         prev = ext[y]["pregnancy_point_prevalence_15_44"]
-        expected = drv_1544 * prev
-        sens_d = (adj_d * driver_share) / expected if expected else np.full(B, np.nan)
+        age_factor = float(AS.get(str(y), {}).get("factor", 1.0))
+        expected = drv_1544 * prev * age_factor
+        sens_d = (adj_d * share_1544) / expected if expected else np.full(B, np.nan)
 
+        # The matched driver count, which is the numerator of the displayed
+        # rate and what the trend of Equation (11) should be fitted to.
+        boot[y]["driver"] = adj_d * share_1549
         boot[y]["adj"] = adj_d; boot[y]["miss"] = miss_d
         boot[y]["rate"] = rate_d; boot[y]["sens"] = sens_d
 
@@ -276,6 +331,9 @@ def main(tau: float, B: int) -> None:
             "role_passenger": round(role_y.get("passenger", 0.0), 1),
             "role_ped_other": round(role_y.get("pedestrian_or_other", 0.0), 1),
             "driver_share_of_cases": round(driver_share, 5),
+            "driver_share_matched_15_49": round(share_1549, 5),
+            "driver_share_matched_15_44": round(share_1544, 5),
+            "age_standardization_factor": round(age_factor, 5),
             "female_drivers_15_49": drv_1549,
             "female_drivers_15_44": drv_1544,
             "female_nonoccupants_15_49": dd.get("nonocc_15_49", 0),
@@ -340,6 +398,19 @@ def main(tau: float, B: int) -> None:
                      "would be noise presented as a sensitivity."),
         },
     }
+    # Per-replicate, per-year matched driver counts, so p12_models.py can refit the trend
+    # across the same chain instead of on a single series of rounded medians. Issue 8.
+    (OUTD / "trend_draws.json").write_text(json.dumps({
+        "B": B,
+        "years": [int(y) for y in years],
+        "driver_counts": {str(y): [round(float(v), 4) for v in boot[y]["driver"]]
+                          for y in years},
+        "female_drivers_15_49": {str(y): den.get(y, {}).get("drivers_15_49", 0)
+                                 for y in years},
+        "note": "One row per bootstrap replicate. Fitting the trend to these carries the "
+                "validation, screen-recall and confirmation-share uncertainty into its "
+                "interval, which a fit to the medians alone does not.",
+    }, indent=1), encoding="utf-8")
     (OUTD / "estimates.json").write_text(json.dumps(summ, indent=1))
     print(json.dumps(summ, indent=1))
     print("\nyear  hits   obs   psum    adj [95% CI]        rate/1k   surv.sens")

@@ -32,7 +32,7 @@ THREE THINGS, IN ORDER.
    writing `validation_metrics.json`, which p10_estimates.py consumes.
 
 LABEL SOURCE IS RECORDED, ALWAYS. Each row's `source` column is one of `human`, `llm_preannot`,
-or `llm_preannot_unaudited`. v1 runs on LLM pre-annotation and every number derived from it is
+or `llm_preannot_unaudited`. v1 runs on model pre-annotation and every number derived from it is
 stamped `preliminary: true` in the output JSON so it cannot be quoted as a human-validated
 figure by accident.
 """
@@ -281,7 +281,7 @@ def metrics(tau: float, bootstrap: int) -> None:
         "preliminary": preliminary,
         "label_sources": sources,
         "preliminary_note": (
-            "At least one label is LLM pre-annotation rather than human adjudication. Every "
+            "At least one label is model pre-annotation rather than human adjudication. Every "
             "Se/Sp/PPV below, and every count that depends on them, must be reported as "
             "PRELIMINARY until the human read in validation_review.csv is complete."
             if preliminary else "All labels are human-adjudicated."),
@@ -332,6 +332,17 @@ def metrics(tau: float, bootstrap: int) -> None:
         },
         "double_coding": {"n_pairs": n_dbl, "cohens_kappa": kappa},
     }
+    # The per-replicate draws, so p10 can run ONE joint chain instead of refitting Beta
+    # approximations to the intervals these draws produced. Review issue 7.
+    (METRICS.parent / "bootstrap_draws.json").write_text(json.dumps({
+        "B": len(bs["se"]),
+        "tau": tau,
+        "se": [round(float(x), 6) for x in bs["se"]],
+        "sp": [round(float(x), 6) for x in bs["sp"]],
+        "note": "One row per bootstrap replicate, from within-stratum resampling of the "
+                "validation set. p10_estimates.py consumes these so that a replicate uses "
+                "one Se and one Sp across every year.",
+    }, indent=1), encoding="utf-8")
     METRICS.write_text(json.dumps(out, indent=1))
     print(json.dumps(out, indent=1))
 
